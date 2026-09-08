@@ -3,6 +3,8 @@ import { chromium } from 'playwright';
 
 const ALLOWED_GROUPS = ['Einwegzigaretten', 'Prefilled Pods', 'Zubehör', 'ELFA Liquid'];
 const DEFAULT_URL = 'https://e-zigaretten-handel.de/ezigaretten/';
+const MAX_CATEGORY_TARGETS = Number(process.env.MAX_CATEGORY_TARGETS || 50);
+const MAX_PAGES_PER_TARGET = Number(process.env.MAX_PAGES_PER_TARGET || 30);
 
 function classify(name = '', category = '', variant = '', url = '') {
   const s = `${name} ${category} ${variant} ${url}`.toLowerCase();
@@ -82,9 +84,10 @@ async function discoverCategoryLinks(page) {
 
 async function extractProducts(page) {
   const candidates = await page.locator([
-    '[data-product-id]',
+    '[data-product-id]', '[data-article-id]',
     '.product--box', '.product-box', '.product-box-container',
     '.product-item', '.product-tile', '.product-card',
+    '.product', '.productlist-item', '.product-list-item',
     'article.product', 'li.product', 'article'
   ].join(',')).evaluateAll(nodes => nodes.map(node => {
     const text = (node.innerText || '').trim().replace(/\s+/g, ' ');
@@ -92,7 +95,7 @@ async function extractProducts(page) {
     const links = [...node.querySelectorAll('a[href]')].filter(a => (a.innerText || '').trim());
     const titleNode = node.querySelector([
       '.product--title', '.product-title', '.product-name', '.product--name',
-      '.title', 'h1', 'h2', 'h3', 'h4', '[itemprop="name"]'
+      '.product__title', '.name', '.title', 'h1', 'h2', 'h3', 'h4', '[itemprop="name"]'
     ].join(','));
     const a = links.find(x => /product|artikel|p\/|detail/i.test(x.getAttribute('href') || '')) || links[0];
     const name = (titleNode?.innerText || a?.innerText || cells[2] || '').trim().replace(/\s+/g, ' ');
@@ -102,12 +105,27 @@ async function extractProducts(page) {
       name,
       variant: node.querySelector('.variant, [class*="variant"]')?.innerText?.trim() || cells[3] || '',
       category: node.getAttribute('data-category') || '',
-      url: a?.href || page.url(),
+      url: a?.href || location.href,
       text
     };
   }));
-
   return candidates.filter(x => x.name && x.name.length >= 2 && x.name.length <= 180);
+}
+
+async function discoverPaginationLinks(page) {
+  return await page.locator('a[href]').evaluateAll(nodes => {
+    const out = [];
+    for (const a of nodes) {
+      const text = (a.innerText || a.textContent || '').trim().replace(/\s+/g, ' ');
+      const rel = (a.getAttribute('rel') || '').toLowerCase();
+      const aria = (a.getAttribute('aria-label') || '').toLowerCase();
+      const href = a.href || '';
+      const cls = (a.className || '').toString().toLowerCase();
+      const likely = rel === 'next' || /next|weiter|vor|seite|page|pagination|pager/.test(`${text} ${aria} ${cls} ${href}`) || /[?&](p|page|seite)=\d+/i.test(href);
+      if (likely && href) out.push({ text: text.slice(0,80), href, rel });
+    }
+    return [...new Map(out.map(x => [x.href, x])).values()];
+  });
 }
 
 async function safeDiagnostics(page, discoveredLinks) {
@@ -161,19 +179,37 @@ try {
   const targets = [];
   if (process.env.PRODUCT_URL) targets.push({ href: process.env.PRODUCT_URL, source: 'PRODUCT_URL' });
   for (const link of discovered) targets.push({ href: link.href, source: 'discovered-category' });
-  const uniqueTargets = [...new Map(targets.map(x => [x.href, x])).values()].slice(0, 10);
+  const uniqueTargets = [...new Map(targets.map(x => [x.href, x])).values()].slice(0, MAX_CATEGORY_TARGETS);
 
   const raw = [];
   const visited = [];
+  const visitedPages = new Set();
   for (const target of uniqueTargets) {
-    try {
-      await page.goto(target.href, { waitUntil: 'domcontentloaded', timeout: 45000 });
-      await page.waitForTimeout(700);
-      const items = await extractProducts(page);
-      visited.push({ source: target.source, path: new URL(page.url()).pathname, candidateCount: items.length });
-      raw.push(...items);
-    } catch (e) {
-      visited.push({ source: target.source, path: (() => { try { return new URL(target.href).pathname; } catch { return target.href; } })(), error: String(e?.message || e) });
+    const queue = [target.href];
+    let pagesForTarget = 0;
+    while (queue.length && pagesForTarget < MAX_PAGES_PER_TARGET) {
+      const href = queue.shift();
+      if (visitedPages.has(href)) continue;
+      visitedPages.add(href);
+      try {
+        await page.goto(href, { waitUntil: 'domcontentloaded', timeout: 45000 });
+        await page.waitForTimeout(700);
+        const items = await extractProducts(page);
+        pagesForTarget += 1;
+        visited.push({ source: target.source, path: new URL(page.url()).pathname, url: page.url(), candidateCount: items.length, pageIndex: pagesForTarget });
+        raw.push(...items);
+
+        if (pagesForTarget < MAX_PAGES_PER_TARGET) {
+          const pagination = await discoverPaginationLinks(page);
+          const nextLinks = pagination
+            .filter(x => !visitedPages.has(x.href))
+            .filter(x => x.href !== target.href)
+            .slice(0, 8);
+          for (const n of nextLinks) queue.push(n.href);
+        }
+      } catch (e) {
+        visited.push({ source: target.source, path: (() => { try { return new URL(href).pathname; } catch { return href; } })(), url: href, error: String(e?.message || e), pageIndex: pagesForTarget + 1 });
+      }
     }
   }
 
@@ -194,12 +230,15 @@ try {
   diagnostics.counts = counts;
   diagnostics.status = unique.length ? 'ok' : 'no_products_found';
   diagnostics.generatedAt = new Date().toISOString();
-  diagnostics.note = unique.length ? 'Produkte erkannt.' : 'Login/Navigation lief durch, aber keine passenden Produktkarten wurden erkannt. Die Diagnose enthält nur Struktur-/Pfadinformationen.';
+  diagnostics.pagesVisited = visitedPages.size;
+  diagnostics.maxCategoryTargets = MAX_CATEGORY_TARGETS;
+  diagnostics.maxPagesPerTarget = MAX_PAGES_PER_TARGET;
+  diagnostics.note = unique.length ? 'Produkte erkannt; Kategorie-Ziele und Pagination wurden vollständig im gesetzten Limit durchlaufen.' : 'Login/Navigation lief durch, aber keine passenden Produktkarten wurden erkannt. Die Diagnose enthält nur Struktur-/Pfadinformationen.';
 
   await fs.mkdir('out', { recursive: true });
   await fs.writeFile('out/diagnostics.json', JSON.stringify(diagnostics, null, 2), 'utf8');
-  await fs.writeFile('out/products.json', JSON.stringify({ version: '1.4.0', syncedAt: diagnostics.generatedAt, source: diagnostics.finalUrl, allowedGroups: ALLOWED_GROUPS, count: unique.length, counts, products: unique }, null, 2), 'utf8');
-  await fs.writeFile('out/summary.json', JSON.stringify({ version: '1.4.0', syncedAt: diagnostics.generatedAt, source: diagnostics.finalUrl, allowedGroups: ALLOWED_GROUPS, count: unique.length, counts, status: diagnostics.status }, null, 2), 'utf8');
+  await fs.writeFile('out/products.json', JSON.stringify({ version: '1.5.0', syncedAt: diagnostics.generatedAt, source: diagnostics.finalUrl, allowedGroups: ALLOWED_GROUPS, count: unique.length, counts, products: unique }, null, 2), 'utf8');
+  await fs.writeFile('out/summary.json', JSON.stringify({ version: '1.5.0', syncedAt: diagnostics.generatedAt, source: diagnostics.finalUrl, allowedGroups: ALLOWED_GROUPS, count: unique.length, counts, status: diagnostics.status }, null, 2), 'utf8');
 
   console.log(`neXaro VAPE Sync 1.4.0: ${unique.length} Produkte`);
   console.log(JSON.stringify(counts));
