@@ -109,7 +109,7 @@ async function discoverCategoryLinks(page) {
     const terms=/einweg|disposable|prefilled|pre-filled|pod|zubehör|zubehoer|accessor|elfliq|elfa|elfbar|lost.?mary/i;
     const out=[];
     for(const a of nodes){
-      const text=normalizeText(a.innerText||a.textContent||'');
+      const text=(a.innerText||a.textContent||'').replace(/\s+/g,' ').trim();
       const href=a.href||'';
       if(href && terms.test(`${text} ${href}`)) out.push({text:text.slice(0,120),href});
     }
@@ -121,7 +121,7 @@ async function discoverPaginationLinks(page) {
   return await page.locator('a[href]').evaluateAll(nodes => {
     const out=[];
     for(const a of nodes){
-      const text=normalizeText(a.innerText||a.textContent||'');
+      const text=(a.innerText||a.textContent||'').replace(/\s+/g,' ').trim();
       const rel=(a.getAttribute('rel')||'').toLowerCase();
       const aria=(a.getAttribute('aria-label')||'').toLowerCase();
       const href=a.href||'';
@@ -183,7 +183,7 @@ try{
   await page.goto(loginUrl,{waitUntil:'domcontentloaded',timeout:45000});
   await login(page);
 
-  const diagnostics={version:'10.0.0',loginUrl,searchTerms:SEARCH_TERMS,allowedGroups:ALLOWED_GROUPS,maxSearchPages:MAX_SEARCH_PAGES,maxCategoryTargets:MAX_CATEGORY_TARGETS,maxCategoryPages:MAX_CATEGORY_PAGES,generatedAt:new Date().toISOString()};
+  const diagnostics={version:'10.1.0',loginUrl,searchTerms:SEARCH_TERMS,allowedGroups:ALLOWED_GROUPS,maxSearchPages:MAX_SEARCH_PAGES,maxCategoryTargets:MAX_CATEGORY_TARGETS,maxCategoryPages:MAX_CATEGORY_PAGES,generatedAt:new Date().toISOString()};
   const raw=[]; const visited=[]; const searchResults=[];
 
   // Primary: manufacturer searches, but preserve the working V8 category crawler as fallback.
@@ -250,9 +250,9 @@ try{
 
   await fs.mkdir('out',{recursive:true});
   await fs.writeFile('out/diagnostics.json',JSON.stringify(diagnostics,null,2),'utf8');
-  await fs.writeFile('out/products.json',JSON.stringify({version:'10.0.0',syncedAt:diagnostics.generatedAt,source:diagnostics.finalUrl,searchTerms:SEARCH_TERMS,allowedGroups:ALLOWED_GROUPS,count:unique.length,counts,manufacturers,products:unique},null,2),'utf8');
-  await fs.writeFile('out/summary.json',JSON.stringify({version:'10.0.0',syncedAt:diagnostics.generatedAt,source:diagnostics.finalUrl,searchTerms:SEARCH_TERMS,allowedGroups:ALLOWED_GROUPS,count:unique.length,counts,manufacturers,status:diagnostics.status,fallback},null,2),'utf8');
-  console.log(`neXaro VAPE Sync 10.0.0: ${unique.length} Produkte`);
+  await fs.writeFile('out/products.json',JSON.stringify({version:'10.1.0',syncedAt:diagnostics.generatedAt,source:diagnostics.finalUrl,searchTerms:SEARCH_TERMS,allowedGroups:ALLOWED_GROUPS,count:unique.length,counts,manufacturers,products:unique},null,2),'utf8');
+  await fs.writeFile('out/summary.json',JSON.stringify({version:'10.1.0',syncedAt:diagnostics.generatedAt,source:diagnostics.finalUrl,searchTerms:SEARCH_TERMS,allowedGroups:ALLOWED_GROUPS,count:unique.length,counts,manufacturers,status:diagnostics.status,fallback},null,2),'utf8');
+  console.log(`neXaro VAPE Sync 10.1.0: ${unique.length} Produkte`);
   console.log(JSON.stringify(counts));
   console.log(`Hersteller: ${JSON.stringify(manufacturers)}`);
   console.log(`Diagnose: ${diagnostics.status}; Suchseiten: ${visited.length}; Rohkandidaten: ${raw.length}; Detailseiten: ${detailCount}; Fallback: ${fallback.used?'ja':'nein'}`);
