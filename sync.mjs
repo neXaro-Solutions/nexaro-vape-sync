@@ -183,13 +183,12 @@ try{
   await page.goto(loginUrl,{waitUntil:'domcontentloaded',timeout:45000});
   await login(page);
 
-  const diagnostics={version:'10.1.0',loginUrl,searchTerms:SEARCH_TERMS,allowedGroups:ALLOWED_GROUPS,maxSearchPages:MAX_SEARCH_PAGES,maxCategoryTargets:MAX_CATEGORY_TARGETS,maxCategoryPages:MAX_CATEGORY_PAGES,generatedAt:new Date().toISOString()};
+  const diagnostics={version:'10.2.0',loginUrl,searchTerms:SEARCH_TERMS,allowedGroups:ALLOWED_GROUPS,maxSearchPages:MAX_SEARCH_PAGES,maxCategoryTargets:MAX_CATEGORY_TARGETS,maxCategoryPages:MAX_CATEGORY_PAGES,generatedAt:new Date().toISOString()};
   const raw=[]; const visited=[]; const searchResults=[];
 
   // Primary: manufacturer searches, but preserve the working V8 category crawler as fallback.
   for(const term of SEARCH_TERMS){
     await page.goto(loginUrl,{waitUntil:'domcontentloaded',timeout:45000});
-    await login(page);
     try{
       const s=await trySearch(page,term);
       if(!s.ok){ searchResults.push({term,ok:false,reason:s.reason}); continue; }
@@ -203,7 +202,6 @@ try{
   let fallback={used:false,candidates:0,pages:0};
   if(raw.length < 100){
     await page.goto(loginUrl,{waitUntil:'domcontentloaded',timeout:45000});
-    await login(page);
     const links=await discoverCategoryLinks(page);
     const targets=[...new Map(links.map(x=>[x.href,x])).values()].slice(0,MAX_CATEGORY_TARGETS);
     const crawled=await crawlPages(page,targets.map(x=>x.href),'CATEGORY_NAV',MAX_CATEGORY_PAGES*targets.length);
@@ -246,13 +244,13 @@ try{
   diagnostics.pagesVisited=visited.length;
   diagnostics.detailPagesVisited=detailCount;
   diagnostics.status=unique.length?'ok':'no_products_found';
-  diagnostics.note='Hybrid-Sync: Hersteller-Suche zuerst; bei zu wenigen Ergebnissen Rückfall auf die funktionierende eingeloggte Kategorie-Navigation. Produktdetailseiten werden zur Gruppenerkennung nachangereichert. Nur die vier neXaro-Gruppen und ELFBAR/ELFA/LOST MARY/ELFLIQ werden übernommen.';
+  diagnostics.note='Hybrid-Sync 10.2: Eine Login-Session pro Lauf; Hersteller-Suche zuerst; bei zu wenigen Ergebnissen Rückfall auf die funktionierende eingeloggte Kategorie-Navigation. Produktdetailseiten werden zur Gruppenerkennung nachangereichert. Nur die vier neXaro-Gruppen und ELFBAR/ELFA/LOST MARY/ELFLIQ werden übernommen.';
 
   await fs.mkdir('out',{recursive:true});
   await fs.writeFile('out/diagnostics.json',JSON.stringify(diagnostics,null,2),'utf8');
-  await fs.writeFile('out/products.json',JSON.stringify({version:'10.1.0',syncedAt:diagnostics.generatedAt,source:diagnostics.finalUrl,searchTerms:SEARCH_TERMS,allowedGroups:ALLOWED_GROUPS,count:unique.length,counts,manufacturers,products:unique},null,2),'utf8');
-  await fs.writeFile('out/summary.json',JSON.stringify({version:'10.1.0',syncedAt:diagnostics.generatedAt,source:diagnostics.finalUrl,searchTerms:SEARCH_TERMS,allowedGroups:ALLOWED_GROUPS,count:unique.length,counts,manufacturers,status:diagnostics.status,fallback},null,2),'utf8');
-  console.log(`neXaro VAPE Sync 10.1.0: ${unique.length} Produkte`);
+  await fs.writeFile('out/products.json',JSON.stringify({version:'10.2.0',syncedAt:diagnostics.generatedAt,source:diagnostics.finalUrl,searchTerms:SEARCH_TERMS,allowedGroups:ALLOWED_GROUPS,count:unique.length,counts,manufacturers,products:unique},null,2),'utf8');
+  await fs.writeFile('out/summary.json',JSON.stringify({version:'10.2.0',syncedAt:diagnostics.generatedAt,source:diagnostics.finalUrl,searchTerms:SEARCH_TERMS,allowedGroups:ALLOWED_GROUPS,count:unique.length,counts,manufacturers,status:diagnostics.status,fallback},null,2),'utf8');
+  console.log(`neXaro VAPE Sync 10.2.0: ${unique.length} Produkte`);
   console.log(JSON.stringify(counts));
   console.log(`Hersteller: ${JSON.stringify(manufacturers)}`);
   console.log(`Diagnose: ${diagnostics.status}; Suchseiten: ${visited.length}; Rohkandidaten: ${raw.length}; Detailseiten: ${detailCount}; Fallback: ${fallback.used?'ja':'nein'}`);
