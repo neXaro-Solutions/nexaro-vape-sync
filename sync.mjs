@@ -3,8 +3,8 @@ import { chromium } from 'playwright';
 
 const ALLOWED_GROUPS = ['Einwegzigaretten', 'Prefilled Pods', 'Zubehör', 'ELFA Liquid'];
 const DEFAULT_URL = 'https://e-zigaretten-handel.de/ezigaretten/';
-const MAX_CATEGORY_TARGETS = Number(process.env.MAX_CATEGORY_TARGETS || 50);
-const MAX_PAGES_PER_TARGET = Number(process.env.MAX_PAGES_PER_TARGET || 30);
+const SEARCH_TERMS = ['ELFBAR', 'ELFA', 'LOST MARY', 'ELFLIQ'];
+const MAX_SEARCH_PAGES = Number(process.env.MAX_SEARCH_PAGES || 50);
 
 function classify(name = '', category = '', variant = '', url = '') {
   const s = `${name} ${category} ${variant} ${url}`.toLowerCase();
@@ -17,6 +17,9 @@ function classify(name = '', category = '', variant = '', url = '') {
 
 function normalize(p = {}) {
   const nexaroGroup = classify(p.name, p.category, p.variant, p.url);
+  const haystack = `${p.name} ${p.category} ${p.variant} ${p.url} ${p.text || ''}`.toLowerCase();
+  const allowedBrand = /elfbar|elfa|lost mary|elfliq/.test(haystack);
+  if (!allowedBrand) return null;
   if (!nexaroGroup) return null;
   return {
     orderNo: String(p.orderNo ?? '').trim(),
@@ -65,21 +68,51 @@ async function login(page) {
   await page.waitForTimeout(1500);
 }
 
-function isLikelyCategoryLink(text, href) {
-  const s = `${text} ${href}`.toLowerCase();
-  return /einweg|disposable|prefilled|pre[- ]?filled|pod[- _]?kit|podkit|zubehör|zubehoer|accessor|elfliq|elfa[- _]?liquid/.test(s);
+async function findSearchForm(page) {
+  const forms = await page.locator('form').evaluateAll(forms => forms.map(form => ({
+    action: form.action || location.href,
+    method: (form.method || 'get').toLowerCase(),
+    inputs: [...form.querySelectorAll('input, textarea, select')].map(i => ({
+      tag: i.tagName.toLowerCase(),
+      type: (i.getAttribute('type') || '').toLowerCase(),
+      name: i.getAttribute('name') || '',
+      placeholder: i.getAttribute('placeholder') || '',
+      value: i.value || ''
+    })),
+    text: (form.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 200)
+  })));
+  const candidate = forms.find(f => /\/search(?:$|[?])/i.test(f.action) && f.inputs.some(i => !['password','submit','button','hidden'].includes(i.type)))
+    || forms.find(f => /suche|search/i.test(`${f.text} ${f.action}`) && f.inputs.some(i => !['password','submit','button','hidden'].includes(i.type)));
+  return candidate || null;
 }
 
-async function discoverCategoryLinks(page) {
-  const links = await page.locator('a[href]').evaluateAll(nodes => nodes.map(a => ({
-    text: (a.innerText || a.textContent || '').trim().replace(/\s+/g, ' '),
-    href: a.href
-  })));
-  const seen = new Set();
-  return links.filter(x => x.href && isLikelyCategoryLink(x.text, x.href)).filter(x => {
-    if (seen.has(x.href)) return false;
-    seen.add(x.href); return true;
-  }).slice(0, 20);
+async function searchDealer(page, term) {
+  const formInfo = await findSearchForm(page);
+  if (!formInfo) throw new Error(`Suchformular für ${term} nicht erkannt.`);
+  let input = null;
+  for (const selector of [
+    `form[action*="/search"] input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="password"])`,
+    'form input[name="search"]', 'form input[name="q"]', 'form input[name="query"]',
+    'form input[type="search"]', 'form input[placeholder*="Such"]', 'form input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="password"])'
+  ]) {
+    const loc = page.locator(selector).first();
+    if (await loc.count()) { input = loc; break; }
+  }
+  if (!input) throw new Error(`Suchfeld für ${term} nicht erkannt.`);
+  await input.fill(term);
+  const form = input.locator('xpath=ancestor::form[1]');
+  const submit = await firstVisible(form, ['button[type="submit"]', 'input[type="submit"]']);
+  if (submit) {
+    await Promise.allSettled([
+      page.waitForLoadState('domcontentloaded', { timeout: 30000 }),
+      submit.click()
+    ]);
+  } else {
+    await input.press('Enter');
+    await page.waitForLoadState('domcontentloaded', { timeout: 30000 }).catch(() => {});
+  }
+  await page.waitForTimeout(900);
+  return page.url();
 }
 
 async function extractProducts(page) {
@@ -128,6 +161,31 @@ async function discoverPaginationLinks(page) {
   });
 }
 
+async function crawlSearch(page, term) {
+  await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+  await page.waitForTimeout(500);
+  const resultUrl = await searchDealer(page, term);
+  const queue = [resultUrl];
+  const seen = new Set();
+  const raw = [];
+  const visited = [];
+  while (queue.length && visited.length < MAX_SEARCH_PAGES) {
+    const href = queue.shift();
+    if (seen.has(href)) continue;
+    seen.add(href);
+    await page.goto(href, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.waitForTimeout(500);
+    const items = await extractProducts(page);
+    raw.push(...items);
+    visited.push({ term, url: page.url(), path: new URL(page.url()).pathname, candidateCount: items.length, pageIndex: visited.length + 1 });
+    const next = await discoverPaginationLinks(page);
+    for (const n of next) {
+      if (!seen.has(n.href) && n.href !== resultUrl && queue.length < MAX_SEARCH_PAGES) queue.push(n.href);
+    }
+  }
+  return { raw, visited, resultUrl };
+}
+
 async function safeDiagnostics(page, discoveredLinks) {
   return await page.evaluate(({ allowed }) => {
     const forms = [...document.forms].map(f => ({
@@ -172,51 +230,21 @@ try {
   await login(page);
 
   const diagnostics = await safeDiagnostics(page, []);
-  const discovered = await discoverCategoryLinks(page);
-  diagnostics.discoveredCategoryLinkCount = discovered.length;
-  diagnostics.discoveredCategoryLinks = discovered.map(x => ({ text: x.text.slice(0, 100), path: new URL(x.href).pathname }));
-
-  const targets = [];
-  if (process.env.PRODUCT_URL) targets.push({ href: process.env.PRODUCT_URL, source: 'PRODUCT_URL' });
-  for (const link of discovered) targets.push({ href: link.href, source: 'discovered-category' });
-  const uniqueTargets = [...new Map(targets.map(x => [x.href, x])).values()].slice(0, MAX_CATEGORY_TARGETS);
+  diagnostics.searchTerms = SEARCH_TERMS;
+  diagnostics.maxSearchPages = MAX_SEARCH_PAGES;
 
   const raw = [];
   const visited = [];
-  const visitedPages = new Set();
-  for (const target of uniqueTargets) {
-    const queue = [target.href];
-    let pagesForTarget = 0;
-    while (queue.length && pagesForTarget < MAX_PAGES_PER_TARGET) {
-      const href = queue.shift();
-      if (visitedPages.has(href)) continue;
-      visitedPages.add(href);
-      try {
-        await page.goto(href, { waitUntil: 'domcontentloaded', timeout: 45000 });
-        await page.waitForTimeout(700);
-        const items = await extractProducts(page);
-        pagesForTarget += 1;
-        visited.push({ source: target.source, path: new URL(page.url()).pathname, url: page.url(), candidateCount: items.length, pageIndex: pagesForTarget });
-        raw.push(...items);
-
-        if (pagesForTarget < MAX_PAGES_PER_TARGET) {
-          const pagination = await discoverPaginationLinks(page);
-          const nextLinks = pagination
-            .filter(x => !visitedPages.has(x.href))
-            .filter(x => x.href !== target.href)
-            .slice(0, 8);
-          for (const n of nextLinks) queue.push(n.href);
-        }
-      } catch (e) {
-        visited.push({ source: target.source, path: (() => { try { return new URL(href).pathname; } catch { return href; } })(), url: href, error: String(e?.message || e), pageIndex: pagesForTarget + 1 });
-      }
+  const searchResults = [];
+  for (const term of SEARCH_TERMS) {
+    try {
+      const result = await crawlSearch(page, term);
+      raw.push(...result.raw);
+      visited.push(...result.visited);
+      searchResults.push({ term, resultUrl: result.resultUrl, pagesVisited: result.visited.length, candidates: result.raw.length });
+    } catch (e) {
+      searchResults.push({ term, error: String(e?.message || e) });
     }
-  }
-
-  // If no category targets were discovered, inspect the login landing page again for diagnostics.
-  if (!uniqueTargets.length) {
-    await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
-    await page.waitForTimeout(500);
   }
 
   const products = raw.map(normalize).filter(Boolean);
@@ -224,25 +252,26 @@ try {
   const counts = Object.fromEntries(ALLOWED_GROUPS.map(g => [g, unique.filter(p => p.nexaroGroup === g).length]));
 
   diagnostics.finalUrl = page.url();
-  diagnostics.visitedTargets = visited;
+  diagnostics.searchResults = searchResults;
+  diagnostics.visitedSearchPages = visited;
   diagnostics.rawCandidateCount = raw.length;
   diagnostics.filteredProductCount = unique.length;
   diagnostics.counts = counts;
   diagnostics.status = unique.length ? 'ok' : 'no_products_found';
   diagnostics.generatedAt = new Date().toISOString();
-  diagnostics.pagesVisited = visitedPages.size;
-  diagnostics.maxCategoryTargets = MAX_CATEGORY_TARGETS;
-  diagnostics.maxPagesPerTarget = MAX_PAGES_PER_TARGET;
-  diagnostics.note = unique.length ? 'Produkte erkannt; Kategorie-Ziele und Pagination wurden vollständig im gesetzten Limit durchlaufen.' : 'Login/Navigation lief durch, aber keine passenden Produktkarten wurden erkannt. Die Diagnose enthält nur Struktur-/Pfadinformationen.';
+  diagnostics.pagesVisited = visited.length;
+  diagnostics.note = unique.length
+    ? 'Hersteller-Suche über ELFBAR, ELFA, LOST MARY und ELFLIQ. Suchergebnisse und Pagination wurden im gesetzten Limit durchlaufen; danach wurden nur die vier neXaro-Gruppen und die genannten Marken übernommen.'
+    : 'Login/Suche lief durch, aber keine passenden Produktkarten wurden erkannt. Die Diagnose enthält die erkannten Such-URLs und Seiten.';
 
   await fs.mkdir('out', { recursive: true });
   await fs.writeFile('out/diagnostics.json', JSON.stringify(diagnostics, null, 2), 'utf8');
-  await fs.writeFile('out/products.json', JSON.stringify({ version: '7.0.0', syncedAt: diagnostics.generatedAt, source: diagnostics.finalUrl, allowedGroups: ALLOWED_GROUPS, count: unique.length, counts, products: unique }, null, 2), 'utf8');
-  await fs.writeFile('out/summary.json', JSON.stringify({ version: '7.0.0', syncedAt: diagnostics.generatedAt, source: diagnostics.finalUrl, allowedGroups: ALLOWED_GROUPS, count: unique.length, counts, status: diagnostics.status }, null, 2), 'utf8');
+  await fs.writeFile('out/products.json', JSON.stringify({ version: '8.0.0', syncedAt: diagnostics.generatedAt, source: diagnostics.finalUrl, searchTerms: SEARCH_TERMS, allowedGroups: ALLOWED_GROUPS, count: unique.length, counts, products: unique }, null, 2), 'utf8');
+  await fs.writeFile('out/summary.json', JSON.stringify({ version: '8.0.0', syncedAt: diagnostics.generatedAt, source: diagnostics.finalUrl, searchTerms: SEARCH_TERMS, allowedGroups: ALLOWED_GROUPS, count: unique.length, counts, status: diagnostics.status }, null, 2), 'utf8');
 
-  console.log(`neXaro VAPE Sync 7.0.0: ${unique.length} Produkte`);
+  console.log(`neXaro VAPE Sync 8.0.0: ${unique.length} Produkte`);
   console.log(JSON.stringify(counts));
-  console.log(`Diagnose: ${diagnostics.status}; Kategorie-Links: ${discovered.length}; Ziele: ${uniqueTargets.length}; Rohkandidaten: ${raw.length}`);
+  console.log(`Diagnose: ${diagnostics.status}; Suchbegriffe: ${SEARCH_TERMS.length}; Suchseiten: ${visited.length}; Rohkandidaten: ${raw.length}`);
 } finally {
   await browser.close();
 }

@@ -1,25 +1,27 @@
-# neXaro VAPE Sync 1.5
+# neXaro VAPE Sync 8.0.0
 
-Separate GitHub Actions sync component for the neXaro VAPE module. The existing CRM is not modified by this repository.
+Separate sync component for the neXaro CRM. The existing CRM is not modified by this package.
 
-## Scope
-Only these groups are imported:
+## Search strategy
+After dealer login, the sync searches the dealer area for:
+- ELFBAR
+- ELFA
+- LOST MARY
+- ELFLIQ
+
+It follows search-result pagination up to `MAX_SEARCH_PAGES` per term, removes duplicates, and keeps only these four neXaro groups:
 - Einwegzigaretten
 - Prefilled Pods
 - Zubehör
-- ELFA Liquid / ELFLIQ
+- ELFA Liquid
 
-All other product groups are excluded.
+Only products matching the requested brands are retained. Dealer credentials are read exclusively from GitHub Actions Secrets. No credentials are committed to the repository.
 
-## 1.5 improvements
-- Crawls all discovered category targets instead of only the first 10.
-- Follows pagination/next-page links with configurable limits.
-- Produces `out/products.json`, `out/summary.json` and `out/diagnostics.json`.
-- Dealer credentials remain GitHub Actions Secrets only.
-- No dealer price/quantity data is written to the public repository.
+## Outputs
+`out/products.json`, `out/summary.json`, `out/diagnostics.json` are uploaded as a workflow artifact and are not committed to the public repository.
 
-Default limits:
-- MAX_CATEGORY_TARGETS=50
-- MAX_PAGES_PER_TARGET=30
+## Required GitHub Secrets
+- `DEALER_USER`
+- `DEALER_PASSWORD`
 
-These can be provided as GitHub Actions environment variables if needed.
+Optional selector secrets are supported if the shop changes its form markup.
