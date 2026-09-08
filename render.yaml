@@ -12,3 +12,5 @@ services:
         value: "https://e-zigaretten-handel.de/ezigaretten/"
       - key: PORT
         value: "10000"
+      - key: SYNC_TOKEN
+        generateValue: true

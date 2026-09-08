@@ -1,4 +1,4 @@
-# neXaro VAPE Sync 1.2.0
+# neXaro VAPE Sync 1.2.1
 
 Separate backend component for synchronizing the dealer portal into the neXaro VAPE catalog.
 
@@ -64,3 +64,9 @@ Filter test:
 
 ## Safety
 No CAPTCHA/2FA bypass is implemented. If the dealer portal requires additional authentication, complete the portal's normal authentication flow or configure supported selectors.
+
+
+## Security
+- `/health` is public for the Render health check.
+- `/sync` and `/filter` require `Authorization: Bearer <SYNC_TOKEN>`.
+- `SYNC_TOKEN`, `DEALER_USER`, and `DEALER_PASSWORD` are server-side environment variables only and must never be committed to GitHub.

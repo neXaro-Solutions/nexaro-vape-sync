@@ -5,6 +5,15 @@ import { chromium } from 'playwright';
 const app = express();
 app.use(express.json({ limit: '10mb' }));
 
+function requireSyncToken(req, res, next) {
+  const token = process.env.SYNC_TOKEN;
+  if (!token) return res.status(503).json({ ok: false, error: 'SYNC_TOKEN ist serverseitig nicht gesetzt.' });
+  const auth = req.get('authorization') || '';
+  const supplied = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+  if (supplied !== token) return res.status(401).json({ ok: false, error: 'Nicht autorisiert.' });
+  next();
+}
+
 const ALLOWED_GROUPS = ['Einwegzigaretten', 'Prefilled Pods', 'Zubehör', 'ELFA Liquid'];
 
 function classify(name = '', category = '', variant = '', url = '') {
@@ -128,15 +137,15 @@ async function extractProducts(page) {
   });
 }
 
-app.get('/health', (_req, res) => res.json({ ok: true, service: 'neXaro VAPE Sync', version: '1.2.0', allowedGroups: ALLOWED_GROUPS }));
+app.get('/health', (_req, res) => res.json({ ok: true, service: 'neXaro VAPE Sync', version: '1.2.1', allowedGroups: ALLOWED_GROUPS }));
 
-app.post('/filter', (req, res) => {
+app.post('/filter', requireSyncToken, (req, res) => {
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
   const products = items.map(normalize).filter(Boolean);
   res.json({ count: products.length, products });
 });
 
-app.post('/sync', async (_req, res) => {
+app.post('/sync', requireSyncToken, async (_req, res) => {
   if (!process.env.DEALER_USER || !process.env.DEALER_PASSWORD) {
     return res.status(400).json({ ok: false, error: 'DEALER_USER/DEALER_PASSWORD fehlen. Zugangsdaten nur als Server-Umgebungsvariablen setzen.' });
   }
@@ -164,4 +173,4 @@ app.post('/sync', async (_req, res) => {
   }
 });
 
-app.listen(Number(process.env.PORT || 8787), () => console.log(`neXaro VAPE Sync 1.2.0 listening on :${process.env.PORT || 8787}`));
+app.listen(Number(process.env.PORT || 8787), '0.0.0.0', () => console.log(`neXaro VAPE Sync 1.2.1 listening on :${process.env.PORT || 8787}`));
