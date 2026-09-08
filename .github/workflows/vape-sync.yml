@@ -42,15 +42,13 @@ jobs:
           MAX_PAGES_PER_TARGET: "30"
         run: npm run sync
 
-      -       - name: Check generated catalog
+      - name: Check generated catalog
         run: |
           test -f out/summary.json
           test -f out/diagnostics.json
           test -f out/products.json
-
           echo "===== SUMMARY ====="
           cat out/summary.json
-
           echo ""
           echo "===== DIAGNOSTICS ====="
           cat out/diagnostics.json
