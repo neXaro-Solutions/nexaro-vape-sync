@@ -1,27 +1,33 @@
-# neXaro VAPE Sync 8.0.0
+# neXaro VAPE Sync 9.0.0
 
-Separate sync component for the neXaro CRM. The existing CRM is not modified by this package.
+Separate GitHub Actions sync component for the neXaro VAPE catalog. The existing CRM is not modified.
 
-## Search strategy
-After dealer login, the sync searches the dealer area for:
+## Search scope
+The dealer portal is searched by manufacturer/brand terms:
 - ELFBAR
 - ELFA
 - LOST MARY
 - ELFLIQ
 
-It follows search-result pagination up to `MAX_SEARCH_PAGES` per term, removes duplicates, and keeps only these four neXaro groups:
+Only these neXaro groups are retained:
 - Einwegzigaretten
 - Prefilled Pods
 - Zubehör
 - ELFA Liquid
 
-Only products matching the requested brands are retained. Dealer credentials are read exclusively from GitHub Actions Secrets. No credentials are committed to the repository.
+## V9 classification
+V9 keeps the manufacturer search as the primary discovery method, but does not rely only on the product name. It carries the search term into every candidate and reads visible category/breadcrumb/page context. Brand matches that remain ambiguous are opened on their product detail pages so category/breadcrumb information can be used before filtering.
 
-## Outputs
-`out/products.json`, `out/summary.json`, `out/diagnostics.json` are uploaded as a workflow artifact and are not committed to the public repository.
+Duplicates are removed before the result is written.
 
-## Required GitHub Secrets
-- `DEALER_USER`
-- `DEALER_PASSWORD`
+## Security
+Dealer credentials are read only from GitHub Actions Secrets (`DEALER_USER`, `DEALER_PASSWORD`). Do not commit credentials or private dealer price data.
 
-Optional selector secrets are supported if the shop changes its form markup.
+The workflow uploads only `out/products.json`, `out/summary.json`, and `out/diagnostics.json` as a short-lived GitHub Actions artifact. No cookies, screenshots or HTML dumps are uploaded.
+
+No CAPTCHA/2FA bypass is implemented.
+
+## Run
+GitHub → Actions → neXaro VAPE Sync → Run workflow.
+
+The existing neXaro CRM is intentionally not touched by this component.

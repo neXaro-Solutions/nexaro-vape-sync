@@ -5,35 +5,60 @@ const ALLOWED_GROUPS = ['Einwegzigaretten', 'Prefilled Pods', 'Zubehör', 'ELFA 
 const DEFAULT_URL = 'https://e-zigaretten-handel.de/ezigaretten/';
 const SEARCH_TERMS = ['ELFBAR', 'ELFA', 'LOST MARY', 'ELFLIQ'];
 const MAX_SEARCH_PAGES = Number(process.env.MAX_SEARCH_PAGES || 50);
+const MAX_DETAIL_PAGES = Number(process.env.MAX_DETAIL_PAGES || 250);
 
-function classify(name = '', category = '', variant = '', url = '') {
-  const s = `${name} ${category} ${variant} ${url}`.toLowerCase();
+function clean(s = '') { return String(s).replace(/\s+/g, ' ').trim(); }
+
+function brandOf(p = {}) {
+  const s = `${p.searchTerm || ''} ${p.name || ''} ${p.category || ''} ${p.variant || ''} ${p.url || ''} ${p.text || ''} ${p.breadcrumbs || ''}`.toLowerCase();
+  if (/lost\s*mary/.test(s)) return 'LOST MARY';
+  if (/elfliq/.test(s)) return 'ELFLIQ';
+  if (/elfa/.test(s)) return 'ELFA';
+  if (/elfbar/.test(s)) return 'ELFBAR';
+  return '';
+}
+
+function groupOf(p = {}) {
+  const s = `${p.category || ''} ${p.breadcrumbs || ''} ${p.name || ''} ${p.variant || ''} ${p.url || ''} ${p.text || ''}`.toLowerCase();
+  const search = `${p.searchTerm || ''}`.toLowerCase();
+
+  // Strong category signals first. These are intentionally based on the dealer's
+  // visible category/breadcrumb context when available.
   if (/elfliq|elfliq|elfa[- _]?liquid|elfbar[- _]?elfliq/.test(s)) return 'ELFA Liquid';
-  if (/prefilled|pre[- ]?filled|prefill(ed)?|pod[- _]?kits?|podkit|pod kits?/.test(s)) return 'Prefilled Pods';
-  if (/zubehör|zubehoer|accessor(y|ies)|coils?|verdampfer|tank|drip tip|case|tasche|ladegerät|charging|kabel|akku|battery/.test(s)) return 'Zubehör';
-  if (/einweg|disposable|elfbar 600|elfbar 800|lost mary bm|tappo|eb[- ]?600|qm[- ]?600/.test(s)) return 'Einwegzigaretten';
+  if (/prefilled|pre[- ]?filled|prefill(ed)?|prefilled[- _]?pods?|pod[- _]?kits?|podkit|pod kits?/.test(s)) return 'Prefilled Pods';
+  if (/zubehör|zubehoer|accessor(y|ies)|ladegerät|charging\s*(station|case|cable)?|drip\s*tip|case|tasche|kabel/.test(s)) return 'Zubehör';
+  if (/einweg|disposable|elfbar\s*(600|800|max)|lost\s*mary\s*(bm|qm)|\beb[- _]?600\b|\bqm[- _]?600\b|\bbm[- _]?600\b|tappo/.test(s)) return 'Einwegzigaretten';
+
+  // Manufacturer-search fallback: only use this when the product itself strongly
+  // indicates a disposable/prefilled/liquid item. Never classify a generic brand
+  // match as Zubehör just because it was found by a manufacturer search.
+  if (/elfliq/.test(search) || /elfliq/.test(s)) return 'ELFA Liquid';
+  if (/prefilled|pre[- ]?filled|pod/.test(s)) return 'Prefilled Pods';
+  if (/disposable|einweg|600|800|bm600|qm600/.test(s)) return 'Einwegzigaretten';
   return '';
 }
 
 function normalize(p = {}) {
-  const nexaroGroup = classify(p.name, p.category, p.variant, p.url);
-  const haystack = `${p.name} ${p.category} ${p.variant} ${p.url} ${p.text || ''}`.toLowerCase();
-  const allowedBrand = /elfbar|elfa|lost mary|elfliq/.test(haystack);
-  if (!allowedBrand) return null;
-  if (!nexaroGroup) return null;
+  const brand = brandOf(p);
+  const nexaroGroup = groupOf(p);
+  if (!brand || !nexaroGroup) return null;
   return {
-    orderNo: String(p.orderNo ?? '').trim(),
-    ean: String(p.ean ?? '').trim(),
-    name: String(p.name ?? '').trim(),
-    variant: String(p.variant ?? '').trim(),
-    category: String(p.category ?? '').trim(),
-    url: String(p.url ?? '').trim(),
+    orderNo: clean(p.orderNo),
+    ean: clean(p.ean),
+    name: clean(p.name),
+    variant: clean(p.variant),
+    category: clean(p.category),
+    breadcrumbs: clean(p.breadcrumbs),
+    url: clean(p.url),
+    brand,
+    searchTerm: clean(p.searchTerm),
     nexaroGroup
   };
 }
 
 async function firstVisible(page, selectors) {
   for (const selector of selectors) {
+    if (!selector) continue;
     const loc = page.locator(selector).first();
     if (await loc.count() && await loc.isVisible().catch(() => false)) return loc;
   }
@@ -46,11 +71,11 @@ async function login(page) {
     'input[name="username"]', 'input[name="user"]', 'input[name="customer"]',
     'input[name="kundennummer"]', 'input[name="customerNumber"]',
     'input[type="text"]', 'input[type="email"]'
-  ].filter(Boolean));
+  ]);
   const pass = await firstVisible(page, [
     process.env.LOGIN_PASSWORD_SELECTOR,
     'input[name="password"]', 'input[name="pass"]', 'input[type="password"]'
-  ].filter(Boolean));
+  ]);
   if (!user || !pass) throw new Error('Loginfelder nicht erkannt. Optional LOGIN_USER_SELECTOR / LOGIN_PASSWORD_SELECTOR als GitHub Secret setzen.');
   await user.fill(process.env.DEALER_USER);
   await pass.fill(process.env.DEALER_PASSWORD);
@@ -59,7 +84,7 @@ async function login(page) {
     'button[type="submit"]', 'input[type="submit"]',
     'button:has-text("Einloggen")', 'button:has-text("Login")',
     'input[value*="Einloggen"]'
-  ].filter(Boolean));
+  ]);
   if (!submit) throw new Error('Login-Button nicht erkannt. Optional LOGIN_SUBMIT_SELECTOR als GitHub Secret setzen.');
   await Promise.allSettled([
     page.waitForLoadState('domcontentloaded', { timeout: 30000 }),
@@ -73,28 +98,28 @@ async function findSearchForm(page) {
     action: form.action || location.href,
     method: (form.method || 'get').toLowerCase(),
     inputs: [...form.querySelectorAll('input, textarea, select')].map(i => ({
-      tag: i.tagName.toLowerCase(),
       type: (i.getAttribute('type') || '').toLowerCase(),
       name: i.getAttribute('name') || '',
-      placeholder: i.getAttribute('placeholder') || '',
-      value: i.value || ''
+      placeholder: i.getAttribute('placeholder') || ''
     })),
     text: (form.innerText || '').trim().replace(/\s+/g, ' ').slice(0, 200)
   })));
-  const candidate = forms.find(f => /\/search(?:$|[?])/i.test(f.action) && f.inputs.some(i => !['password','submit','button','hidden'].includes(i.type)))
-    || forms.find(f => /suche|search/i.test(`${f.text} ${f.action}`) && f.inputs.some(i => !['password','submit','button','hidden'].includes(i.type)));
-  return candidate || null;
+  return forms.find(f => /\/search(?:$|[?])/i.test(f.action) && f.inputs.some(i => !['password','submit','button','hidden'].includes(i.type)))
+    || forms.find(f => /suche|search/i.test(`${f.text} ${f.action}`) && f.inputs.some(i => !['password','submit','button','hidden'].includes(i.type)))
+    || null;
 }
 
 async function searchDealer(page, term) {
   const formInfo = await findSearchForm(page);
   if (!formInfo) throw new Error(`Suchformular für ${term} nicht erkannt.`);
   let input = null;
-  for (const selector of [
+  const selectors = [
     `form[action*="/search"] input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="password"])`,
     'form input[name="search"]', 'form input[name="q"]', 'form input[name="query"]',
-    'form input[type="search"]', 'form input[placeholder*="Such"]', 'form input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="password"])'
-  ]) {
+    'form input[type="search"]', 'form input[placeholder*="Such"]',
+    'form input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="password"])'
+  ];
+  for (const selector of selectors) {
     const loc = page.locator(selector).first();
     if (await loc.count()) { input = loc; break; }
   }
@@ -115,33 +140,46 @@ async function searchDealer(page, term) {
   return page.url();
 }
 
-async function extractProducts(page) {
+async function extractContext(page) {
+  return await page.evaluate(() => {
+    const text = (document.body?.innerText || '').replace(/\s+/g, ' ').trim();
+    const crumbs = [...document.querySelectorAll('[class*="breadcrumb"], [class*="breadcrumbs"], nav[aria-label*="breadcrumb" i], .breadcrumb, .breadcrumbs')]
+      .map(x => (x.innerText || '').replace(/\s+/g, ' ').trim()).filter(Boolean).join(' | ');
+    const headings = [...document.querySelectorAll('h1,h2,h3')].map(x => (x.innerText || '').replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 12).join(' | ');
+    return { breadcrumbs: crumbs, headings, title: document.title || '', bodyText: text.slice(0, 5000) };
+  });
+}
+
+async function extractProducts(page, searchTerm, pageContext = {}) {
   const candidates = await page.locator([
     '[data-product-id]', '[data-article-id]',
     '.product--box', '.product-box', '.product-box-container',
-    '.product-item', '.product-tile', '.product-card',
-    '.product', '.productlist-item', '.product-list-item',
-    'article.product', 'li.product', 'article'
-  ].join(',')).evaluateAll(nodes => nodes.map(node => {
+    '.product-item', '.product-tile', '.product-card', '.product',
+    '.productlist-item', '.product-list-item', 'article.product', 'li.product', 'article'
+  ].join(',')).evaluateAll((nodes, ctx) => nodes.map(node => {
     const text = (node.innerText || '').trim().replace(/\s+/g, ' ');
     const cells = [...node.querySelectorAll('td')].map(x => x.innerText.trim());
-    const links = [...node.querySelectorAll('a[href]')].filter(a => (a.innerText || '').trim());
+    const links = [...node.querySelectorAll('a[href]')].filter(a => (a.innerText || '').trim() || a.href);
     const titleNode = node.querySelector([
       '.product--title', '.product-title', '.product-name', '.product--name',
       '.product__title', '.name', '.title', 'h1', 'h2', 'h3', 'h4', '[itemprop="name"]'
     ].join(','));
     const a = links.find(x => /product|artikel|p\/|detail/i.test(x.getAttribute('href') || '')) || links[0];
     const name = (titleNode?.innerText || a?.innerText || cells[2] || '').trim().replace(/\s+/g, ' ');
+    const localCrumbs = [...node.querySelectorAll('[class*="breadcrumb"], [class*="category"], [class*="manufacturer"], [class*="brand"]')]
+      .map(x => (x.innerText || '').replace(/\s+/g, ' ').trim()).filter(Boolean).join(' | ');
     return {
       orderNo: cells[0] || node.getAttribute('data-product-id') || node.getAttribute('data-article-id') || '',
       ean: node.getAttribute('data-ean') || '',
       name,
       variant: node.querySelector('.variant, [class*="variant"]')?.innerText?.trim() || cells[3] || '',
       category: node.getAttribute('data-category') || '',
+      breadcrumbs: [ctx.breadcrumbs, localCrumbs, ctx.headings].filter(Boolean).join(' | '),
       url: a?.href || location.href,
-      text
+      text,
+      searchTerm
     };
-  }));
+  }), { ...pageContext });
   return candidates.filter(x => x.name && x.name.length >= 2 && x.name.length <= 180);
 }
 
@@ -175,7 +213,8 @@ async function crawlSearch(page, term) {
     seen.add(href);
     await page.goto(href, { waitUntil: 'domcontentloaded', timeout: 45000 });
     await page.waitForTimeout(500);
-    const items = await extractProducts(page);
+    const context = await extractContext(page);
+    const items = await extractProducts(page, term, context);
     raw.push(...items);
     visited.push({ term, url: page.url(), path: new URL(page.url()).pathname, candidateCount: items.length, pageIndex: visited.length + 1 });
     const next = await discoverPaginationLinks(page);
@@ -186,7 +225,40 @@ async function crawlSearch(page, term) {
   return { raw, visited, resultUrl };
 }
 
-async function safeDiagnostics(page, discoveredLinks) {
+async function extractDetailContext(page) {
+  return await page.evaluate(() => {
+    const text = (document.body?.innerText || '').replace(/\s+/g, ' ').trim();
+    const crumbs = [...document.querySelectorAll('[class*="breadcrumb"], [class*="breadcrumbs"], nav[aria-label*="breadcrumb" i], .breadcrumb, .breadcrumbs')]
+      .map(x => (x.innerText || '').replace(/\s+/g, ' ').trim()).filter(Boolean).join(' | ');
+    const headings = [...document.querySelectorAll('h1,h2,h3,h4')].map(x => (x.innerText || '').replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 12).join(' | ');
+    const category = [...document.querySelectorAll('[class*="category"], [class*="manufacturer"], [class*="brand"], [itemprop="category"]')]
+      .map(x => (x.innerText || '').replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 10).join(' | ');
+    return { breadcrumbs: crumbs, headings, category, bodyText: text.slice(0, 6000) };
+  });
+}
+
+async function enrichUnclassified(page, candidates) {
+  const byUrl = new Map();
+  for (const p of candidates) {
+    if (!p.url || !/^https?:/i.test(p.url)) continue;
+    if (!byUrl.has(p.url)) byUrl.set(p.url, p);
+  }
+  const targets = [...byUrl.values()].filter(p => !groupOf(p)).slice(0, MAX_DETAIL_PAGES);
+  const enriched = [];
+  for (const p of targets) {
+    try {
+      await page.goto(p.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForTimeout(250);
+      const d = await extractDetailContext(page);
+      enriched.push({ ...p, breadcrumbs: clean(`${p.breadcrumbs || ''} ${d.breadcrumbs || ''}`), category: clean(`${p.category || ''} ${d.category || ''}`), text: clean(`${p.text || ''} ${d.headings || ''} ${d.bodyText || ''}`) });
+    } catch (e) {
+      enriched.push({ ...p, detailError: String(e?.message || e) });
+    }
+  }
+  return enriched;
+}
+
+async function safeDiagnostics(page) {
   return await page.evaluate(({ allowed }) => {
     const forms = [...document.forms].map(f => ({
       method: f.method || 'get',
@@ -194,10 +266,6 @@ async function safeDiagnostics(page, discoveredLinks) {
       passwordInputs: f.querySelectorAll('input[type="password"]').length,
       submitInputs: f.querySelectorAll('button[type="submit"], input[type="submit"]').length
     }));
-    const counts = {};
-    for (const selector of ['table tbody tr','[data-product-id]','.product--box','.product-box','.product-item','.product-tile','.product-card','article.product','li.product']) {
-      counts[selector] = document.querySelectorAll(selector).length;
-    }
     const bodyText = (document.body?.innerText || '').replace(/\s+/g, ' ').trim();
     const lower = bodyText.toLowerCase();
     return {
@@ -206,15 +274,13 @@ async function safeDiagnostics(page, discoveredLinks) {
       pathname: location.pathname,
       forms,
       passwordFieldCount: document.querySelectorAll('input[type="password"]').length,
-      productSelectorCounts: counts,
       bodyTextLength: bodyText.length,
       loginMarkers: {
         logout: /abmelden|ausloggen|logout|log out/.test(lower),
         customerArea: /kundencenter|mein konto|my account|kundenkonto/.test(lower),
         loginFormStillVisible: document.querySelectorAll('input[type="password"]').length > 0
       },
-      allowedGroups: allowed,
-      discoveredCategoryLinkCount: 0
+      allowedGroups: allowed
     };
   }, { allowed: ALLOWED_GROUPS });
 }
@@ -229,9 +295,10 @@ try {
   await page.goto(loginUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
   await login(page);
 
-  const diagnostics = await safeDiagnostics(page, []);
+  const diagnostics = await safeDiagnostics(page);
   diagnostics.searchTerms = SEARCH_TERMS;
   diagnostics.maxSearchPages = MAX_SEARCH_PAGES;
+  diagnostics.maxDetailPages = MAX_DETAIL_PAGES;
 
   const raw = [];
   const visited = [];
@@ -247,31 +314,44 @@ try {
     }
   }
 
-  const products = raw.map(normalize).filter(Boolean);
-  const unique = [...new Map(products.map(p => [`${p.orderNo}|${p.ean}|${p.name}|${p.variant}|${p.url}`, p])).values()];
+  // First pass with search/category context.
+  const firstPass = raw.map(normalize).filter(Boolean);
+  const unclassified = raw.filter(p => !groupOf(p) && brandOf(p));
+
+  // Second pass: visit unique product detail pages and read breadcrumbs/category text.
+  const enriched = await enrichUnclassified(page, unclassified);
+  const secondPass = enriched.map(normalize).filter(Boolean);
+
+  const products = [...firstPass, ...secondPass];
+  const unique = [...new Map(products.map(p => [`${p.url}|${p.name}|${p.variant}|${p.nexaroGroup}`, p])).values()];
   const counts = Object.fromEntries(ALLOWED_GROUPS.map(g => [g, unique.filter(p => p.nexaroGroup === g).length]));
+  const brandCounts = Object.fromEntries(['ELFBAR','ELFA','LOST MARY','ELFLIQ'].map(b => [b, unique.filter(p => p.brand === b).length]));
 
   diagnostics.finalUrl = page.url();
   diagnostics.searchResults = searchResults;
   diagnostics.visitedSearchPages = visited;
   diagnostics.rawCandidateCount = raw.length;
+  diagnostics.firstPassCount = firstPass.length;
+  diagnostics.unclassifiedBrandCandidates = unclassified.length;
+  diagnostics.detailPagesVisited = Math.min(unclassified.length, MAX_DETAIL_PAGES);
+  diagnostics.enrichedCount = secondPass.length;
   diagnostics.filteredProductCount = unique.length;
   diagnostics.counts = counts;
+  diagnostics.brandCounts = brandCounts;
   diagnostics.status = unique.length ? 'ok' : 'no_products_found';
   diagnostics.generatedAt = new Date().toISOString();
   diagnostics.pagesVisited = visited.length;
-  diagnostics.note = unique.length
-    ? 'Hersteller-Suche über ELFBAR, ELFA, LOST MARY und ELFLIQ. Suchergebnisse und Pagination wurden im gesetzten Limit durchlaufen; danach wurden nur die vier neXaro-Gruppen und die genannten Marken übernommen.'
-    : 'Login/Suche lief durch, aber keine passenden Produktkarten wurden erkannt. Die Diagnose enthält die erkannten Such-URLs und Seiten.';
+  diagnostics.note = 'Hersteller-Suche über ELFBAR, ELFA, LOST MARY und ELFLIQ. Suchseiten werden mit Suchbegriff, Breadcrumbs und Seitenkontext ausgewertet. Nicht eindeutig klassifizierte Markentreffer werden zusätzlich über Produktdetailseiten angereichert. Danach werden nur die vier neXaro-Gruppen übernommen.';
 
   await fs.mkdir('out', { recursive: true });
   await fs.writeFile('out/diagnostics.json', JSON.stringify(diagnostics, null, 2), 'utf8');
-  await fs.writeFile('out/products.json', JSON.stringify({ version: '8.0.0', syncedAt: diagnostics.generatedAt, source: diagnostics.finalUrl, searchTerms: SEARCH_TERMS, allowedGroups: ALLOWED_GROUPS, count: unique.length, counts, products: unique }, null, 2), 'utf8');
-  await fs.writeFile('out/summary.json', JSON.stringify({ version: '8.0.0', syncedAt: diagnostics.generatedAt, source: diagnostics.finalUrl, searchTerms: SEARCH_TERMS, allowedGroups: ALLOWED_GROUPS, count: unique.length, counts, status: diagnostics.status }, null, 2), 'utf8');
+  await fs.writeFile('out/products.json', JSON.stringify({ version: '9.0.0', syncedAt: diagnostics.generatedAt, source: diagnostics.finalUrl, searchTerms: SEARCH_TERMS, allowedGroups: ALLOWED_GROUPS, count: unique.length, counts, brandCounts, products: unique }, null, 2), 'utf8');
+  await fs.writeFile('out/summary.json', JSON.stringify({ version: '9.0.0', syncedAt: diagnostics.generatedAt, source: diagnostics.finalUrl, searchTerms: SEARCH_TERMS, allowedGroups: ALLOWED_GROUPS, count: unique.length, counts, brandCounts, status: diagnostics.status }, null, 2), 'utf8');
 
-  console.log(`neXaro VAPE Sync 8.0.0: ${unique.length} Produkte`);
+  console.log(`neXaro VAPE Sync 9.0.0: ${unique.length} Produkte`);
   console.log(JSON.stringify(counts));
-  console.log(`Diagnose: ${diagnostics.status}; Suchbegriffe: ${SEARCH_TERMS.length}; Suchseiten: ${visited.length}; Rohkandidaten: ${raw.length}`);
+  console.log(`Hersteller: ${JSON.stringify(brandCounts)}`);
+  console.log(`Diagnose: ${diagnostics.status}; Suchbegriffe: ${SEARCH_TERMS.length}; Suchseiten: ${visited.length}; Rohkandidaten: ${raw.length}; Detailseiten: ${diagnostics.detailPagesVisited}; Nachanreicherung: ${secondPass.length}`);
 } finally {
   await browser.close();
 }
