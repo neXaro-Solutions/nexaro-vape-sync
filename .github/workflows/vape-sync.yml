@@ -3,10 +3,10 @@ name: neXaro VAPE Sync
 on:
   workflow_dispatch:
   schedule:
-    - cron: '17 */6 * * *'
+    - cron: "17 */6 * * *"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   sync:
@@ -21,51 +21,34 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
       - name: Run VAPE Sync
         env:
-          DEALER_URL: ${{ secrets.DEALER_URL }}
-          DEALER_LOGIN_URL: ${{ secrets.DEALER_LOGIN_URL }}
+          DEALER_URL: "https://e-zigaretten-handel.de/ezigaretten/"
           DEALER_USER: ${{ secrets.DEALER_USER }}
           DEALER_PASSWORD: ${{ secrets.DEALER_PASSWORD }}
-
           HEADLESS: "true"
-
-          LOGIN_USER_SELECTOR: ${{ secrets.LOGIN_USER_SELECTOR }}
-          LOGIN_PASSWORD_SELECTOR: ${{ secrets.LOGIN_PASSWORD_SELECTOR }}
-          LOGIN_SUBMIT_SELECTOR: ${{ secrets.LOGIN_SUBMIT_SELECTOR }}
-
-          PRODUCT_URL: ${{ secrets.PRODUCT_URL }}
-          CSV_EXPORT_SELECTOR: ${{ secrets.CSV_EXPORT_SELECTOR }}
-        run: node sync.mjs
+        run: npm run sync
 
       - name: Check generated catalog
         run: |
-          if [ ! -f data/products.json ]; then
-            echo "FEHLER: data/products.json wurde nicht erzeugt."
+          if [ ! -f out/products.json ]; then
+            echo "FEHLER: out/products.json wurde nicht erzeugt."
             exit 1
           fi
 
           echo "VAPE-Katalog erfolgreich erzeugt."
-          wc -c data/products.json
+          wc -c out/products.json
 
-      - name: Commit updated catalog
-        run: |
-          git config user.name "neXaro VAPE Sync"
-          git config user.email "actions@users.noreply.github.com"
-
-          git add data/products.json
-
-          if git diff --cached --quiet; then
-            echo "Keine Änderungen am VAPE-Katalog."
-          else
-            git commit -m "Automatischer VAPE-Katalog Sync"
-            git push
-          fi
+      - name: Upload sync result
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexaro-vape-sync-${{ github.run_number }}
+          path: out/
+          retention-days: 7
