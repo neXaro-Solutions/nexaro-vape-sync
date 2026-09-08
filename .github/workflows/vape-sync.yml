@@ -38,12 +38,15 @@ jobs:
           LOGIN_USER_SELECTOR: ${{ secrets.LOGIN_USER_SELECTOR }}
           LOGIN_PASSWORD_SELECTOR: ${{ secrets.LOGIN_PASSWORD_SELECTOR }}
           LOGIN_SUBMIT_SELECTOR: ${{ secrets.LOGIN_SUBMIT_SELECTOR }}
+          MAX_CATEGORY_TARGETS: "50"
+          MAX_PAGES_PER_TARGET: "30"
         run: npm run sync
 
       - name: Check generated catalog
         run: |
           test -f out/summary.json
           test -f out/diagnostics.json
+          test -f out/products.json
           echo "Diagnose vorhanden."
           cat out/summary.json
 
