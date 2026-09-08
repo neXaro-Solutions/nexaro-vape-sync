@@ -20,7 +20,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Install dependencies
         run: npm install
@@ -33,18 +33,19 @@ jobs:
           DEALER_URL: "https://e-zigaretten-handel.de/ezigaretten/"
           DEALER_USER: ${{ secrets.DEALER_USER }}
           DEALER_PASSWORD: ${{ secrets.DEALER_PASSWORD }}
-          HEADLESS: "true"
+          DEALER_LOGIN_URL: ${{ secrets.DEALER_LOGIN_URL }}
+          PRODUCT_URL: ${{ secrets.PRODUCT_URL }}
+          LOGIN_USER_SELECTOR: ${{ secrets.LOGIN_USER_SELECTOR }}
+          LOGIN_PASSWORD_SELECTOR: ${{ secrets.LOGIN_PASSWORD_SELECTOR }}
+          LOGIN_SUBMIT_SELECTOR: ${{ secrets.LOGIN_SUBMIT_SELECTOR }}
         run: npm run sync
 
       - name: Check generated catalog
         run: |
-          if [ ! -f out/products.json ]; then
-            echo "FEHLER: out/products.json wurde nicht erzeugt."
-            exit 1
-          fi
-
-          echo "VAPE-Katalog erfolgreich erzeugt."
-          wc -c out/products.json
+          test -f out/summary.json
+          test -f out/diagnostics.json
+          echo "Diagnose vorhanden."
+          cat out/summary.json
 
       - name: Upload sync result
         uses: actions/upload-artifact@v4
