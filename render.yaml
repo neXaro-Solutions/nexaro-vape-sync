@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: nexaro-vape-sync
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: HEADLESS
+        value: "true"
+      - key: DEALER_URL
+        value: "https://e-zigaretten-handel.de/ezigaretten/"
+      - key: PORT
+        value: "10000"

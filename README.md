@@ -1,13 +1,13 @@
-# neXaro VAPE Sync 1.1.0
+# neXaro VAPE Sync 1.2.0
 
 Separate backend component for synchronizing the dealer portal into the neXaro VAPE catalog.
 
 ## Important separation
-- This component does NOT modify the existing neXaro CRM.
+- This component does **not** modify the existing neXaro CRM.
 - No CRM localStorage access.
 - No CRM source files are required.
 - Dealer credentials stay in server environment variables and are never returned by the API.
-- Do not commit `.env` to GitHub.
+- Never commit `.env` to GitHub.
 
 ## Included VAPE groups
 Exactly these four groups are accepted:
@@ -18,23 +18,49 @@ Exactly these four groups are accepted:
 
 Akkuträger and all other groups are excluded.
 
-## Current portal basis
-The public dealer homepage exposes a login with Kundennummer/Passwort and advertises Zubehör and ELFBAR ELFLIQ among its catalog areas. The exact authenticated product DOM can differ, so selectors remain configurable.
+## Docker
+The image is based on the official Playwright image, so Chromium is already included. This avoids a separate browser-install step on the host.
 
-## Start
+Build:
 ```bash
-npm install
-npx playwright install chromium
-cp .env.example .env
-# edit .env locally; never commit it
-npm start
+docker build -t nexaro-vape-sync .
 ```
 
-Health check: `GET http://localhost:8787/health`
+Run:
+```bash
+docker run --rm -p 8787:10000 \
+  -e DEALER_USER='YOUR_CUSTOMER_NUMBER' \
+  -e DEALER_PASSWORD='YOUR_PASSWORD' \
+  -e DEALER_URL='https://e-zigaretten-handel.de/ezigaretten/' \
+  -e HEADLESS='true' \
+  nexaro-vape-sync
+```
 
-Sync: `POST http://localhost:8787/sync`
+## Environment variables
+Required on the server only:
+- `DEALER_USER`
+- `DEALER_PASSWORD`
 
-Filter test: `POST http://localhost:8787/filter` with `{ "items": [...] }`
+Optional:
+- `DEALER_URL`
+- `DEALER_LOGIN_URL`
+- `PRODUCT_URL`
+- `LOGIN_USER_SELECTOR`
+- `LOGIN_PASSWORD_SELECTOR`
+- `LOGIN_SUBMIT_SELECTOR`
+- `CSV_EXPORT_SELECTOR`
+- `HEADLESS` (default `true`)
+- `PORT` (default `8787`, Render blueprint uses `10000`)
+
+## Endpoints
+Health:
+`GET /health`
+
+Sync:
+`POST /sync`
+
+Filter test:
+`POST /filter` with `{ "items": [...] }`
 
 ## Safety
-No CAPTCHA/2FA bypass is implemented. If the dealer portal requires additional authentication, complete the portal's normal authentication flow or configure the supported selectors.
+No CAPTCHA/2FA bypass is implemented. If the dealer portal requires additional authentication, complete the portal's normal authentication flow or configure supported selectors.

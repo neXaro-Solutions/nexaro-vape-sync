@@ -128,7 +128,7 @@ async function extractProducts(page) {
   });
 }
 
-app.get('/health', (_req, res) => res.json({ ok: true, service: 'neXaro VAPE Sync', version: '1.1.0', allowedGroups: ALLOWED_GROUPS }));
+app.get('/health', (_req, res) => res.json({ ok: true, service: 'neXaro VAPE Sync', version: '1.2.0', allowedGroups: ALLOWED_GROUPS }));
 
 app.post('/filter', (req, res) => {
   const items = Array.isArray(req.body?.items) ? req.body.items : [];
@@ -164,4 +164,4 @@ app.post('/sync', async (_req, res) => {
   }
 });
 
-app.listen(Number(process.env.PORT || 8787), () => console.log(`neXaro VAPE Sync 1.1.0 listening on :${process.env.PORT || 8787}`));
+app.listen(Number(process.env.PORT || 8787), () => console.log(`neXaro VAPE Sync 1.2.0 listening on :${process.env.PORT || 8787}`));
