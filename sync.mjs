@@ -237,10 +237,10 @@ try {
 
   await fs.mkdir('out', { recursive: true });
   await fs.writeFile('out/diagnostics.json', JSON.stringify(diagnostics, null, 2), 'utf8');
-  await fs.writeFile('out/products.json', JSON.stringify({ version: '1.5.0', syncedAt: diagnostics.generatedAt, source: diagnostics.finalUrl, allowedGroups: ALLOWED_GROUPS, count: unique.length, counts, products: unique }, null, 2), 'utf8');
-  await fs.writeFile('out/summary.json', JSON.stringify({ version: '1.5.0', syncedAt: diagnostics.generatedAt, source: diagnostics.finalUrl, allowedGroups: ALLOWED_GROUPS, count: unique.length, counts, status: diagnostics.status }, null, 2), 'utf8');
+  await fs.writeFile('out/products.json', JSON.stringify({ version: '7.0.0', syncedAt: diagnostics.generatedAt, source: diagnostics.finalUrl, allowedGroups: ALLOWED_GROUPS, count: unique.length, counts, products: unique }, null, 2), 'utf8');
+  await fs.writeFile('out/summary.json', JSON.stringify({ version: '7.0.0', syncedAt: diagnostics.generatedAt, source: diagnostics.finalUrl, allowedGroups: ALLOWED_GROUPS, count: unique.length, counts, status: diagnostics.status }, null, 2), 'utf8');
 
-  console.log(`neXaro VAPE Sync 1.4.0: ${unique.length} Produkte`);
+  console.log(`neXaro VAPE Sync 7.0.0: ${unique.length} Produkte`);
   console.log(JSON.stringify(counts));
   console.log(`Diagnose: ${diagnostics.status}; Kategorie-Links: ${discovered.length}; Ziele: ${uniqueTargets.length}; Rohkandidaten: ${raw.length}`);
 } finally {
