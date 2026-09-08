@@ -1,33 +1,26 @@
-# neXaro VAPE Sync 9.0.0
+# neXaro VAPE Sync 10.0.0
 
 Separate GitHub Actions sync component for the neXaro VAPE catalog. The existing CRM is not modified.
 
-## Search scope
-The dealer portal is searched by manufacturer/brand terms:
+## Scope
+Only these manufacturers are accepted:
 - ELFBAR
 - ELFA
 - LOST MARY
 - ELFLIQ
 
-Only these neXaro groups are retained:
+Only these neXaro groups are exported:
 - Einwegzigaretten
 - Prefilled Pods
 - Zubehör
 - ELFA Liquid
 
-## V9 classification
-V9 keeps the manufacturer search as the primary discovery method, but does not rely only on the product name. It carries the search term into every candidate and reads visible category/breadcrumb/page context. Brand matches that remain ambiguous are opened on their product detail pages so category/breadcrumb information can be used before filtering.
+## Strategy
+1. Log in to the dealer portal with GitHub Secrets.
+2. Try manufacturer search for ELFBAR, ELFA, LOST MARY and ELFLIQ.
+3. Crawl search pagination.
+4. If manufacturer search yields too little data, automatically fall back to the working logged-in category navigation used by V8.
+5. Enrich promising product URLs with detail-page title, breadcrumbs and body text for better classification.
+6. Deduplicate and export only the four groups and allowed manufacturers.
 
-Duplicates are removed before the result is written.
-
-## Security
-Dealer credentials are read only from GitHub Actions Secrets (`DEALER_USER`, `DEALER_PASSWORD`). Do not commit credentials or private dealer price data.
-
-The workflow uploads only `out/products.json`, `out/summary.json`, and `out/diagnostics.json` as a short-lived GitHub Actions artifact. No cookies, screenshots or HTML dumps are uploaded.
-
-No CAPTCHA/2FA bypass is implemented.
-
-## Run
-GitHub → Actions → neXaro VAPE Sync → Run workflow.
-
-The existing neXaro CRM is intentionally not touched by this component.
+No dealer credentials, prices or quantities are committed to the public repository. Output artifacts contain product names/variants/URLs needed for catalog synchronization.
