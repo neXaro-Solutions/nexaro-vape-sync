@@ -1,34 +1,32 @@
-# neXaro VAPE Sync 1.3.0 — GitHub Actions
+# neXaro VAPE Sync 1.4.0
 
-Separate sync component for the neXaro VAPE catalog. **This repository does not modify the existing neXaro CRM.**
+Separate sync component for the neXaro VAPE module. The existing CRM is not modified.
 
-## What this version does
+## Scope
+Only these groups are accepted:
+- Einwegzigaretten
+- Prefilled Pods
+- Zubehör
+- ELFA Liquid
 
-- Runs Playwright in a GitHub-hosted runner.
-- Logs into the dealer portal using GitHub Actions Secrets.
-- Extracts product metadata and filters strictly to:
-  1. Einwegzigaretten
-  2. Prefilled Pods
-  3. Zubehör
-  4. ELFA Liquid
-- Produces `out/products.json` and `out/summary.json` as a short-lived GitHub Actions artifact.
-- Does **not** write dealer credentials into source code.
-- Does **not** sync dealer EK prices into the public repository.
-- Can be started manually or every 6 hours.
+## 1.4 improvements
+- Uses Node.js 24 in GitHub Actions.
+- Automatically discovers likely category links after login when PRODUCT_URL is not configured.
+- Tries multiple common product-card structures instead of one generic selector.
+- Writes a safe `out/diagnostics.json` with URL/path, DOM selector counts, login markers, discovered category paths, and counts.
+- Does not upload HTML dumps, screenshots, cookies, or credentials.
+- Product result is written to `out/products.json` and uploaded as a workflow artifact.
 
-## GitHub Secrets required
+## Secrets
+Required:
+- DEALER_USER
+- DEALER_PASSWORD
 
-`DEALER_USER` and `DEALER_PASSWORD` are required.
+Optional:
+- DEALER_LOGIN_URL
+- PRODUCT_URL
+- LOGIN_USER_SELECTOR
+- LOGIN_PASSWORD_SELECTOR
+- LOGIN_SUBMIT_SELECTOR
 
-Optional secrets:
-- `DEALER_LOGIN_URL`
-- `PRODUCT_URL`
-- `LOGIN_USER_SELECTOR`
-- `LOGIN_PASSWORD_SELECTOR`
-- `LOGIN_SUBMIT_SELECTOR`
-
-## Important
-
-The current workflow is intentionally a **validation/sync stage**. The existing CRM is not changed and no catalog file is committed publicly. The generated artifact is retained for 7 days. A later integration step can consume the validated catalog through a protected backend/API.
-
-No CAPTCHA or 2FA bypass is implemented.
+No credentials are stored in code.
