@@ -1,27 +1,44 @@
-# neXaro VAPE Sync 10.4.0
+# neXaro VAPE Sync 2.1 – Händler-Erstabgleich
 
-Separate sync component for the neXaro CRM. The existing CRM is not modified by this package.
+Separater Sync für E-ZIGARETTEN-HANDEL.DE. Das bestehende neXaro-CRM wird nicht verändert.
 
-## Search strategy
-After dealer login, the sync searches the dealer area for:
-- ELFBAR
-- ELFA
-- LOST MARY
-- ELFLIQ
+## Zweck
+Der erste Lauf besucht nach dem Login die relevanten Produkt-/Kategorieseiten, öffnet Produktdetailseiten und liest dort – sofern vorhanden – echte Händlerdaten aus:
+- Artikel-Nr.
+- EAN
+- Produktname
+- Preis
+- Verfügbarkeit/Lieferzeit
+- Produktbild
 
-It follows search-result pagination up to `MAX_SEARCH_PAGES` per term, removes duplicates, and keeps only these four neXaro groups:
-- Einwegzigaretten
-- Prefilled Pods
-- Zubehör
-- ELFA Liquid
+Der vorhandene neXaro-Produktstamm bleibt die Masterliste. Die bisher vergebenen ART-001 usw. werden nur als alte Quellreferenz behandelt und **nicht** als Händler-Schlüssel verwendet.
 
-Only products matching the requested brands are retained. Dealer credentials are read exclusively from GitHub Actions Secrets. No credentials are committed to the repository.
+## Zuordnung
+1. Artikel-Nr./EAN werden aus dem Händlerdetail ausgelesen und in `mapping.json` gespeichert.
+2. Die erste Produktzuordnung erfolgt konservativ über normalisierten Produktnamen/Kategorie.
+3. Hohe Treffer werden als `AUTO_MATCH` markiert.
+4. Mittlere Treffer werden als `REVIEW` markiert.
+5. Niedrige Treffer bleiben `UNMATCHED`.
+6. Bei doppelter Zuordnung wird nicht automatisch überschrieben.
 
-## Outputs
-`out/products.json`, `out/summary.json`, `out/diagnostics.json` are uploaded as a workflow artifact and are not committed to the public repository.
+Es gibt keinen Schreibzugriff auf das bestehende CRM.
 
-## Required GitHub Secrets
+## Secrets
 - `DEALER_USER`
 - `DEALER_PASSWORD`
 
-Optional selector secrets are supported if the shop changes its form markup.
+Keine Zugangsdaten in Code, CSV oder Artefakten.
+
+## Start
+`npm install`
+`npx playwright install --with-deps chromium`
+`DEALER_USER=... DEALER_PASSWORD=... npm run sync`
+
+## Ergebnis
+- `out/summary.json`
+- `out/mapping.json`
+- `out/dealer-products.json`
+- `out/master-normalized.json`
+
+## Wichtig
+CAPTCHA/2FA wird nicht umgangen. Wenn der Händlerbereich eine solche Prüfung verlangt, muss sie regulär abgeschlossen bzw. technisch separat unterstützt werden.
