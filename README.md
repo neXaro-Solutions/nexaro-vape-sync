@@ -1,26 +1,27 @@
-# neXaro VAPE Sync 10.0.0
+# neXaro VAPE Sync 10.4.0
 
-Separate GitHub Actions sync component for the neXaro VAPE catalog. The existing CRM is not modified.
+Separate sync component for the neXaro CRM. The existing CRM is not modified by this package.
 
-## Scope
-Only these manufacturers are accepted:
+## Search strategy
+After dealer login, the sync searches the dealer area for:
 - ELFBAR
 - ELFA
 - LOST MARY
 - ELFLIQ
 
-Only these neXaro groups are exported:
+It follows search-result pagination up to `MAX_SEARCH_PAGES` per term, removes duplicates, and keeps only these four neXaro groups:
 - Einwegzigaretten
 - Prefilled Pods
 - Zubehör
 - ELFA Liquid
 
-## Strategy
-1. Log in to the dealer portal with GitHub Secrets.
-2. Try manufacturer search for ELFBAR, ELFA, LOST MARY and ELFLIQ.
-3. Crawl search pagination.
-4. If manufacturer search yields too little data, automatically fall back to the working logged-in category navigation used by V8.
-5. Enrich promising product URLs with detail-page title, breadcrumbs and body text for better classification.
-6. Deduplicate and export only the four groups and allowed manufacturers.
+Only products matching the requested brands are retained. Dealer credentials are read exclusively from GitHub Actions Secrets. No credentials are committed to the repository.
 
-No dealer credentials, prices or quantities are committed to the public repository. Output artifacts contain product names/variants/URLs needed for catalog synchronization.
+## Outputs
+`out/products.json`, `out/summary.json`, `out/diagnostics.json` are uploaded as a workflow artifact and are not committed to the public repository.
+
+## Required GitHub Secrets
+- `DEALER_USER`
+- `DEALER_PASSWORD`
+
+Optional selector secrets are supported if the shop changes its form markup.
