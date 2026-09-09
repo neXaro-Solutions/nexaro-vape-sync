@@ -1,9 +1,7 @@
-name: neXaro VAPE Sync
+name: neXaro VAPE Händler-Erstabgleich
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "17 */6 * * *"
 
 permissions:
   contents: read
@@ -11,51 +9,42 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 24
+          cache: npm
 
-      - name: Install dependencies
-        run: npm install
+      - run: npm install
 
-      - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium
 
-      - name: Run VAPE Sync
+      - name: Händler-Erstabgleich
         env:
-          DEALER_URL: "https://e-zigaretten-handel.de/ezigaretten/"
+          DEALER_LOGIN_URL: https://e-zigaretten-handel.de/ezigaretten/
+          PRODUCT_ROOT_URL: https://e-zigaretten-handel.de/ezigaretten/
           DEALER_USER: ${{ secrets.DEALER_USER }}
           DEALER_PASSWORD: ${{ secrets.DEALER_PASSWORD }}
-          DEALER_LOGIN_URL: ${{ secrets.DEALER_LOGIN_URL }}
-          PRODUCT_URL: ${{ secrets.PRODUCT_URL }}
-          LOGIN_USER_SELECTOR: ${{ secrets.LOGIN_USER_SELECTOR }}
-          LOGIN_PASSWORD_SELECTOR: ${{ secrets.LOGIN_PASSWORD_SELECTOR }}
-          LOGIN_SUBMIT_SELECTOR: ${{ secrets.LOGIN_SUBMIT_SELECTOR }}
-          MAX_CATEGORY_TARGETS: "50"
-          MAX_PAGES_PER_TARGET: "30"
+          HEADLESS: true
+          MAX_CATEGORY_TARGETS: 50
+          MAX_PAGES_PER_TARGET: 30
+          MAX_DETAIL_PAGES: 600
+          MATCH_THRESHOLD: 0.72
+          MATCH_REVIEW_THRESHOLD: 0.58
         run: npm run sync
 
-      - name: Check generated catalog
+      - name: Ergebnis prüfen
         run: |
           test -f out/summary.json
-          test -f out/diagnostics.json
-          test -f out/products.json
-          echo "===== SUMMARY ====="
+          test -f out/mapping.json
           cat out/summary.json
-          echo ""
-          echo "===== DIAGNOSTICS ====="
-          cat out/diagnostics.json
 
-      - name: Upload sync result
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: nexaro-vape-sync-${{ github.run_number }}
+          name: nexaro-vape-first-mapping-${{ github.run_number }}
           path: out/
-          retention-days: 7
+          retention-days: 14
