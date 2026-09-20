@@ -156,7 +156,7 @@ async function main(){
       if(response && !response.ok()) throw new Error(`Katalogseite nicht abrufbar: HTTP ${response.status()} (${url})`);
       pagesVisited++;
       const items=(await extractListing(page)).filter(x=>{
-        try { const u=new URL(x.url); return u.hostname===baseCategory.hostname && u.pathname.startsWith(baseCategory.pathname) && !u.searchParams.has('p'); }
+        try { const u=new URL(x.url); return u.hostname===baseCategory.hostname && !u.searchParams.has('p'); }
         catch { return false; }
       });
       const before=listingMap.size;
