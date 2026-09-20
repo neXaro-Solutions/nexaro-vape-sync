@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright';
+import { extractDealerPrice } from './price.mjs';
 
 const ROOT = process.cwd();
 const MASTER = process.env.MASTER_CSV || path.join(ROOT, 'data', 'master.csv');
@@ -124,13 +125,14 @@ async function extractDetail(page,url,listing){
       title:(document.querySelector('h1')?.innerText||'').trim(),
       articleNo:pick(/Artikel-?Nr\.?\s*[:#]?\s*([A-Z0-9._/-]+)/i),
       ean:pick(/EAN\s*[:#]?\s*(\d{8,14})/i),
-      price:pick(/(?:ab\s*1\s*St[üu]ck|Preis|€)\s*[^0-9]{0,15}([0-9]{1,4}[,.][0-9]{2})\s*€?/i),
+      price:null, // Derived below from the product-specific price context.
       availability:(text.match(/(?:sofort[^\n]{0,120}|lieferzeit[^\n]{0,120}|nicht verfügbar[^\n]{0,120})/i)||[''])[0],
       images:imgs,
       body:text.slice(0,12000)
     };
   });
-  return {url, listing, ...d, price:parseMoney(d.price), category:classify('',d.title||listing?.name||'')};
+  const parsed=extractDealerPrice({body:d.body,title:d.title||listing?.name||'',listingPrice:listing?.price||''});
+  return {url, listing, ...d, ...parsed, price:parsed.priceCandidate, category:classify('',d.title||listing?.name||'')};
 }
 async function main(){
   if(!process.env.DEALER_USER||!process.env.DEALER_PASSWORD) throw new Error('DEALER_USER und DEALER_PASSWORD müssen als Secrets/Umgebungsvariablen gesetzt werden.');
@@ -186,9 +188,9 @@ async function main(){
     const status=confidence>=MATCH_THRESHOLD?'AUTO_MATCH':confidence>=REVIEW_THRESHOLD?'REVIEW':'UNMATCHED';
     if(status==='AUTO_MATCH' && used.has(best.m.neXaroId)){ mapped.push({status:'DUPLICATE_MATCH',confidence,detail:d,candidate:best.m}); continue; }
     if(status==='AUTO_MATCH') used.add(best.m.neXaroId);
-    mapped.push({status,confidence,secondConfidence:second?.score||0,detail:{url:d.url,title:d.title||d.listing?.name||'',articleNo:d.articleNo||'',ean:d.ean||'',price:d.price,availability:d.availability||'',image:(d.images||[])[0]||d.listing?.image||''},candidate:best?.m||null});
+    mapped.push({status,confidence,secondConfidence:second?.score||0,detail:{url:d.url,title:d.title||d.listing?.name||'',articleNo:d.articleNo||'',ean:d.ean||'',price:d.price,priceStatus:d.priceStatus||'missing',priceSource:d.priceSource||'missing',netBasisVerified:false,availability:d.availability||'',image:(d.images||[])[0]||d.listing?.image||''},candidate:best?.m||null});
   }
-  const summary={version:'2.1.0',generatedAt:new Date().toISOString(),masterCount:master.length,categoryLinks:categoryLinks.length,listingCandidates:listings.length,detailPages:details.length,pagesVisited,mappedAuto:mapped.filter(x=>x.status==='AUTO_MATCH').length,review:mapped.filter(x=>x.status==='REVIEW').length,unmatched:mapped.filter(x=>x.status==='UNMATCHED').length,duplicateMatches:mapped.filter(x=>x.status==='DUPLICATE_MATCH').length};
+  const summary={version:'2.1.0',generatedAt:new Date().toISOString(),masterCount:master.length,categoryLinks:categoryLinks.length,listingCandidates:listings.length,detailPages:details.length,pagesVisited,mappedAuto:mapped.filter(x=>x.status==='AUTO_MATCH').length,review:mapped.filter(x=>x.status==='REVIEW').length,unmatched:mapped.filter(x=>x.status==='UNMATCHED').length,duplicateMatches:mapped.filter(x=>x.status==='DUPLICATE_MATCH').length,priceCandidates:details.filter(x=>Number(x.priceCandidate)>0).length,priceMissing:details.filter(x=>!Number(x.priceCandidate)).length,priceReview:details.filter(x=>x.priceStatus==='requires_variant_or_tier_review').length,confirmedNetPrices:0,limitReached:pagesVisited>=MAX_PAGES};
   fs.writeFileSync(path.join(OUT,'summary.json'),JSON.stringify(summary,null,2));
   fs.writeFileSync(path.join(OUT,'mapping.json'),JSON.stringify(mapped,null,2));
   fs.writeFileSync(path.join(OUT,'dealer-products.json'),JSON.stringify(details,null,2));
