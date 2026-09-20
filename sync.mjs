@@ -56,7 +56,7 @@ function classify(category='', name=''){
   return category || '';
 }
 function loadMaster(){
-  if(!fs.existsSync(MASTER)) throw new Error(`Master-Datei fehlt: ${MASTER}`);
+  if(!fs.existsSync(MASTER)) { console.warn('Kein lokaler Master-Katalog: reiner Händler-Erstabgleich ohne bestehende Produktzuordnung.'); return []; }
   const rows=parseCsv(fs.readFileSync(MASTER,'utf8'));
   return rows.map((r,i)=>({
     neXaroId: makeId(i),
@@ -141,9 +141,9 @@ async function main(){
   const root=process.env.DEALER_LOGIN_URL||'https://e-zigaretten-handel.de/ezigaretten/';
   await page.goto(root,{waitUntil:'domcontentloaded',timeout:45000});
   await login(page);
-  const categoryLinks=await discoverLinks(page);
+  const categoryLinks=[]; // Nur die ausdrücklich freigegebene /ezigaretten/-Kategorie und ihre Folgeseiten.
   const listingMap=new Map(); let pagesVisited=0;
-  const targets=categoryLinks.length?categoryLinks:[{href:process.env.PRODUCT_ROOT_URL||root,text:'Produkte'}];
+  const targets=[{href:process.env.PRODUCT_ROOT_URL||root,text:'E-Zigaretten'}];
   for(const target of targets){
     let url=target.href;
     for(let p=0;p<MAX_PAGES;p++){
