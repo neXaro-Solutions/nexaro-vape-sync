@@ -146,16 +146,30 @@ async function main(){
   const targets=[{href:process.env.PRODUCT_ROOT_URL||root,text:'E-Zigaretten'}];
   for(const target of targets){
     let url=target.href;
+    const seenPages=new Set();
+    const baseCategory=new URL(target.href);
     for(let p=0;p<MAX_PAGES;p++){
-      if(!looksHtml(url)) break;
-      await page.goto(url,{waitUntil:'domcontentloaded',timeout:45000}); pagesVisited++;
-      for(const item of await extractListing(page)) listingMap.set(item.url,item);
-      const next=await page.locator('a[rel="next"],a:has-text("Nächste"),a:has-text("Weiter")').first();
-      if(!(await next.count())) break;
-      const href=await next.getAttribute('href'); if(!href) break;
-      const nextUrl=new URL(href,page.url()).href; if(nextUrl===url) break; url=nextUrl;
+      if(!looksHtml(url)||seenPages.has(url)) break;
+      seenPages.add(url);
+      const response=await page.goto(url,{waitUntil:'domcontentloaded',timeout:45000});
+      if(response?.status()===404 && p>0) break;
+      if(response && !response.ok()) throw new Error(`Katalogseite nicht abrufbar: HTTP ${response.status()} (${url})`);
+      pagesVisited++;
+      const items=(await extractListing(page)).filter(x=>{
+        try { const u=new URL(x.url); return u.hostname===baseCategory.hostname && u.pathname.startsWith(baseCategory.pathname) && !u.searchParams.has('p'); }
+        catch { return false; }
+      });
+      const before=listingMap.size;
+      for(const item of items) listingMap.set(item.url,item);
+      if(!items.length || listingMap.size===before) break;
+      const next=page.locator('a[rel="next"],a:has-text("Nächste"),a:has-text("Weiter")').first();
+      const href=await next.count()?await next.getAttribute('href'):null;
+      const nextUrl=href?new URL(href,page.url()).href:new URL(baseCategory.href);
+      if(!href) nextUrl.searchParams.set('p',String(p+2));
+      url=href?nextUrl:nextUrl.href;
     }
   }
+  if(!listingMap.size) throw new Error('Keine Produktlinks erkannt; Katalogstruktur und Anmeldung prüfen.');
   const listings=[...listingMap.values()];
   const details=[]; let n=0;
   for(const item of listings){
