@@ -191,7 +191,7 @@ async function main(){
     mapped.push({status,confidence,secondConfidence:second?.score||0,detail:{url:d.url,title:d.title||d.listing?.name||'',articleNo:d.articleNo||'',ean:d.ean||'',price:d.price,priceStatus:d.priceStatus||'missing',priceSource:d.priceSource||'missing',netBasisVerified:false,availability:d.availability||'',image:(d.images||[])[0]||d.listing?.image||''},candidate:best?.m||null});
   }
   const summary={version:'2.1.0',generatedAt:new Date().toISOString(),masterCount:master.length,categoryLinks:categoryLinks.length,listingCandidates:listings.length,detailPages:details.length,pagesVisited,mappedAuto:mapped.filter(x=>x.status==='AUTO_MATCH').length,review:mapped.filter(x=>x.status==='REVIEW').length,unmatched:mapped.filter(x=>x.status==='UNMATCHED').length,duplicateMatches:mapped.filter(x=>x.status==='DUPLICATE_MATCH').length,priceCandidates:details.filter(x=>Number(x.priceCandidate)>0).length,priceMissing:details.filter(x=>!Number(x.priceCandidate)).length,priceReview:details.filter(x=>x.priceStatus==='requires_variant_or_tier_review').length,confirmedNetPrices:0,limitReached:pagesVisited>=MAX_PAGES};
-  // Owner policy: one order unit means one COMPLETE manufacturer packaging unit (VE).
+  // Owner policy: complete VE by default; individual items only after per-product owner approval and supplier confirmation.
   // Never infer a pack size from the number of pods in a product's name ("2X").
   // Bundles with options must be reviewed as a complete bundle before ordering.
   const veDraft=details.map(d=>{
@@ -201,7 +201,10 @@ async function main(){
     const bundle=/\bBUNDLE\b|\bPROMO\b|\bAKTION\b/i.test(title);
     return {
       supplier_article_no:d.articleNo||null,ean:d.ean||null,title,url:d.url,
-      category:d.category||null,order_unit:'VE',minimum_order_ve:1,quantity_step_ve:1,
+      category:d.category||null,default_order_unit:'VE',minimum_order_ve:1,quantity_step_ve:1,
+      individual_sale_supplier_available:null,individual_sale_owner_approved:false,
+      individual_purchase_net_confirmed:null,individual_sale_net_price:null,
+      individual_sale_eligible:false,individual_sale_status:'blocked_pending_supplier_and_owner_verification',
       pieces_per_ve:units,packaging_status:explicit?'explicit_ve':bundle?'bundle_review':'unknown_ve',
       purchase_net_per_ve_candidate:Number(d.priceCandidate)>0?d.priceCandidate:null,
       purchase_price_basis:'net_owner_confirmed',price_source:d.priceSource||'missing',
@@ -212,7 +215,7 @@ async function main(){
     };
   });
   fs.writeFileSync(path.join(OUT,'ve-catalog-draft.json'),JSON.stringify(veDraft,null,2));
-  const csvFields=['supplier_article_no','ean','title','url','category','order_unit','minimum_order_ve','quantity_step_ve','pieces_per_ve','packaging_status','purchase_net_per_ve_candidate','purchase_price_basis','price_source','price_status','customer_orderable','review_required','standard_margin_percent','minimum_margin_percent','vat_percent'];
+  const csvFields=['supplier_article_no','ean','title','url','category','default_order_unit','minimum_order_ve','quantity_step_ve','pieces_per_ve','packaging_status','purchase_net_per_ve_candidate','purchase_price_basis','price_source','price_status','customer_orderable','review_required','individual_sale_supplier_available','individual_sale_owner_approved','individual_purchase_net_confirmed','individual_sale_net_price','individual_sale_eligible','individual_sale_status','standard_margin_percent','minimum_margin_percent','vat_percent'];
   const csvCell=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
   fs.writeFileSync(path.join(OUT,'ve-catalog-draft.csv'),
     '\uFEFF'+[csvFields.join(';'),...veDraft.map(row=>csvFields.map(k=>csvCell(row[k])).join(';'))].join('\n'));
@@ -220,6 +223,7 @@ async function main(){
   summary.veBundleReview=veDraft.filter(x=>x.packaging_status==='bundle_review').length;
   summary.veUnknown=veDraft.filter(x=>x.packaging_status==='unknown_ve').length;
   summary.customerOrderable=0;
+  summary.individualSaleApproved=0;
   fs.writeFileSync(path.join(OUT,'summary.json'),JSON.stringify(summary,null,2));
   fs.writeFileSync(path.join(OUT,'mapping.json'),JSON.stringify(mapped,null,2));
   fs.writeFileSync(path.join(OUT,'dealer-products.json'),JSON.stringify(details,null,2));
