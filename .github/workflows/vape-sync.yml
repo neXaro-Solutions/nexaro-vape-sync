@@ -21,6 +21,9 @@ jobs:
 
       - run: npm install
 
+      - name: Preisparser testen
+        run: node --test price.test.mjs
+
       - run: npx playwright install --with-deps chromium
 
       - name: Händler-Erstabgleich
