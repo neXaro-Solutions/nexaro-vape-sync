@@ -196,9 +196,9 @@ async function main(){
   // Bundles with options must be reviewed as a complete bundle before ordering.
   const veDraft=details.map(d=>{
     const title=d.title||d.listing?.name||'';
-    const explicit=/\\bVE\\s*[:=]?\\s*(\\d{1,5})\\s*(?:St[üu]ck|Stk\\.?|pcs)?\\b/i.exec(title);
+    const explicit=/\bVE\s*[:=]?\s*(\d{1,5})\s*(?:St[üu]ck|Stk\.?|pcs)?\b/i.exec(title);
     const units=explicit?Number(explicit[1]):null;
-    const bundle=/\\bBUNDLE\\b|\\bPROMO\\b|\\bAKTION\\b/i.test(title);
+    const bundle=/\bBUNDLE\b|\bPROMO\b|\bAKTION\b/i.test(title);
     return {
       supplier_article_no:d.articleNo||null,ean:d.ean||null,title,url:d.url,
       category:d.category||null,order_unit:'VE',minimum_order_ve:1,quantity_step_ve:1,
@@ -215,7 +215,7 @@ async function main(){
   const csvFields=['supplier_article_no','ean','title','url','category','order_unit','minimum_order_ve','quantity_step_ve','pieces_per_ve','packaging_status','purchase_net_per_ve_candidate','purchase_price_basis','price_source','price_status','customer_orderable','review_required','standard_margin_percent','minimum_margin_percent','vat_percent'];
   const csvCell=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
   fs.writeFileSync(path.join(OUT,'ve-catalog-draft.csv'),
-    '\\uFEFF'+[csvFields.join(';'),...veDraft.map(row=>csvFields.map(k=>csvCell(row[k])).join(';'))].join('\\n'));
+    '\uFEFF'+[csvFields.join(';'),...veDraft.map(row=>csvFields.map(k=>csvCell(row[k])).join(';'))].join('\n'));
   summary.veExplicit=veDraft.filter(x=>x.packaging_status==='explicit_ve').length;
   summary.veBundleReview=veDraft.filter(x=>x.packaging_status==='bundle_review').length;
   summary.veUnknown=veDraft.filter(x=>x.packaging_status==='unknown_ve').length;
